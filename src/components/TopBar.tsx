@@ -11,7 +11,7 @@ interface TopBarProps {
   lastUpdated: Date;
   darkMode: boolean;
   onToggleDarkMode: () => void;
-  backendMode: 'SIMULATED' | 'CUSTOM_API' | 'DATA_GOV_SG';
+  backendMode: 'SIMULATED' | 'LTA_DATAMALL' | 'CUSTOM_API' | 'DATA_GOV_SG';
 }
 
 export const TopBar: React.FC<TopBarProps> = ({

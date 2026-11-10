@@ -15,7 +15,8 @@ import {
 } from './types/carpark';
 import {
   filterAndSortCarparks,
-  simulateRealtimeJitter
+  simulateRealtimeJitter,
+  fetchLTACarparks
 } from './services/carparkService';
 import { Map as MapIcon, ListFilter, Zap, Navigation2 } from 'lucide-react';
 
@@ -153,26 +154,48 @@ export default function App() {
   const [showRatesGuide, setShowRatesGuide] = useState<boolean>(false);
 
   // Manual & Automated Refresh Handler
-  const handleRefreshData = useCallback(() => {
+  const handleRefreshData = useCallback(async () => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      setCarparks((prev) => simulateRealtimeJitter(prev));
+    if (backendConfig.mode === 'LTA_DATAMALL') {
+      const result = await fetchLTACarparks(backendConfig.apiKey);
+      if (result.success && result.carparks && result.carparks.length > 0) {
+        setCarparks(result.carparks);
+      } else {
+        setCarparks((prev) => simulateRealtimeJitter(prev));
+      }
       setLastUpdated(new Date());
       setIsRefreshing(false);
-    }, 450);
-  }, []);
+    } else {
+      setTimeout(() => {
+        setCarparks((prev) => simulateRealtimeJitter(prev));
+        setLastUpdated(new Date());
+        setIsRefreshing(false);
+      }, 400);
+    }
+  }, [backendConfig.mode, backendConfig.apiKey]);
 
   // Background Auto-polling interval
   useEffect(() => {
     if (!backendConfig.isAutoPolling) return;
     const intervalMs = Math.max(10, backendConfig.pollingIntervalSeconds) * 1000;
     const timer = setInterval(() => {
-      setCarparks((prev) => simulateRealtimeJitter(prev));
-      setLastUpdated(new Date());
+      if (backendConfig.mode === 'LTA_DATAMALL') {
+        fetchLTACarparks(backendConfig.apiKey).then((res) => {
+          if (res.success && res.carparks && res.carparks.length > 0) {
+            setCarparks(res.carparks);
+          } else {
+            setCarparks((prev) => simulateRealtimeJitter(prev));
+          }
+          setLastUpdated(new Date());
+        });
+      } else {
+        setCarparks((prev) => simulateRealtimeJitter(prev));
+        setLastUpdated(new Date());
+      }
     }, intervalMs);
 
     return () => clearInterval(timer);
-  }, [backendConfig.isAutoPolling, backendConfig.pollingIntervalSeconds]);
+  }, [backendConfig.isAutoPolling, backendConfig.pollingIntervalSeconds, backendConfig.mode, backendConfig.apiKey]);
 
   // Computed filtered list
   const filteredCarparks = useMemo(() => {

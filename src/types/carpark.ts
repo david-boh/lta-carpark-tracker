@@ -70,7 +70,7 @@ export interface FilterState {
 }
 
 export interface BackendConfig {
-  mode: 'SIMULATED' | 'CUSTOM_API' | 'DATA_GOV_SG';
+  mode: 'SIMULATED' | 'LTA_DATAMALL' | 'CUSTOM_API' | 'DATA_GOV_SG';
   apiEndpoint: string;
   apiKey?: string;
   pollingIntervalSeconds: number; // e.g. 30

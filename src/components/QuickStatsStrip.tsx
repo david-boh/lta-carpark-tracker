@@ -6,7 +6,7 @@ interface QuickStatsStripProps {
   carparks: SingaporeCarpark[];
   lastUpdated: Date;
   selectedDistrict: string;
-  backendMode: 'SIMULATED' | 'CUSTOM_API' | 'DATA_GOV_SG';
+  backendMode: 'SIMULATED' | 'LTA_DATAMALL' | 'CUSTOM_API' | 'DATA_GOV_SG';
   onOpenBackendModal: () => void;
 }
 
@@ -85,7 +85,11 @@ export const QuickStatsStrip: React.FC<QuickStatsStripProps> = ({
             onClick={onOpenBackendModal}
             className="hover:underline text-emerald-600 dark:text-emerald-400 font-medium cursor-pointer"
           >
-            {backendMode === 'SIMULATED' ? 'Seed Engine Active' : 'Custom API Connected'}
+            {backendMode === 'LTA_DATAMALL'
+              ? 'LTA DataMall Active'
+              : backendMode === 'SIMULATED'
+              ? 'Seed Engine Active'
+              : 'Custom API Connected'}
           </button>
         </div>
       </div>

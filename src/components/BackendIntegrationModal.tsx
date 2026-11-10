@@ -10,7 +10,9 @@ import {
   Server,
   Zap,
   RefreshCw,
-  ExternalLink
+  ExternalLink,
+  Activity,
+  AlertCircle
 } from 'lucide-react';
 
 interface BackendIntegrationModalProps {
@@ -30,59 +32,82 @@ export const BackendIntegrationModal: React.FC<BackendIntegrationModalProps> = (
   const [interval, setInterval] = useState<number>(config.pollingIntervalSeconds);
   const [isAutoPolling, setIsAutoPolling] = useState<boolean>(config.isAutoPolling);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string; details?: any } | null>(null);
   const [copiedContract, setCopiedContract] = useState(false);
 
   const sampleJsonContract = `{
   "timestamp": "${new Date().toISOString()}",
+  "source": "LTA DataMall CarParkAvailabilityv2",
+  "endpoint": "https://datamall2.mytransport.sg/ltaodataservice/CarParkAvailabilityv2",
   "carparks": [
     {
-      "carpark_number": "ACB",
-      "name": "Angullia Park Off-Street Carpark",
-      "agency": "HDB",
-      "district": "Orchard / Somerset",
-      "coordinates": { "lat": 1.3048, "lng": 103.8306 },
-      "lots": {
-        "car": { "total": 98, "available": 14 },
-        "motorcycle": { "total": 20, "available": 8 }
-      },
-      "ev_charging": {
-        "hasEV": true,
-        "operator": "SP Mobility",
-        "count": 4
-      },
-      "rates": {
-        "central_area": true,
-        "day_rate_half_hour": 1.20,
-        "grace_period_mins": 15
-      }
+      "CarParkID": "1",
+      "Area": "Marina",
+      "Development": "Suntec City",
+      "Location": "1.29375 103.85718",
+      "AvailableLots": 820,
+      "LotType": "C",
+      "Agency": "LTA"
     }
   ]
 }`;
 
-  const handleTestConnection = () => {
+  const handleTestEndpoint = async (target: 'health' | 'carparkavailability' | 'custom') => {
     setIsTesting(true);
     setTestResult(null);
 
-    setTimeout(() => {
-      setIsTesting(false);
-      if (mode === 'SIMULATED') {
+    try {
+      if (target === 'health') {
+        const res = await fetch('/api/health');
+        const data = await res.json();
+        setIsTesting(false);
         setTestResult({
-          success: true,
-          message: 'Simulated Engine is healthy. Emulating real-time Singapore lots fluctuations.'
+          success: res.ok,
+          message: `/api/health responded (HTTP ${res.status})`,
+          details: data
         });
-      } else if (endpoint.startsWith('http://') || endpoint.startsWith('https://') || endpoint.startsWith('/api')) {
-        setTestResult({
-          success: true,
-          message: `Ready for backend link. Client configured to target ${endpoint}.`
-        });
+      } else if (target === 'carparkavailability') {
+        const headers: Record<string, string> = {};
+        if (apiKey.trim()) {
+          headers['AccountKey'] = apiKey.trim();
+        }
+        const res = await fetch('/api/carparkavailability', { headers });
+        const data = await res.json();
+        setIsTesting(false);
+        if (data.status === 'CONFIG_REQUIRED') {
+          setTestResult({
+            success: true,
+            message: 'Serverless endpoint /api/carparkavailability is live! AccountKey not yet set in environment (ready for key input).',
+            details: data
+          });
+        } else if (data.status === 'OK') {
+          setTestResult({
+            success: true,
+            message: `Successfully connected to LTA DataMall! Retrieved ${data.count} live carpark availability records.`,
+            details: { count: data.count, source: data.source, sample: data.value?.slice(0, 2) }
+          });
+        } else {
+          setTestResult({
+            success: false,
+            message: data.message || `LTA DataMall responded with status: ${data.status}`,
+            details: data
+          });
+        }
       } else {
+        // Custom URL test
+        setIsTesting(false);
         setTestResult({
-          success: false,
-          message: 'Please provide a valid URL starting with http://, https://, or /api'
+          success: true,
+          message: `Custom endpoint ${endpoint} set.`
         });
       }
-    }, 600);
+    } catch (err: unknown) {
+      setIsTesting(false);
+      setTestResult({
+        success: false,
+        message: err instanceof Error ? err.message : String(err)
+      });
+    }
   };
 
   const handleSave = () => {
@@ -117,10 +142,10 @@ export const BackendIntegrationModal: React.FC<BackendIntegrationModalProps> = (
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                Backend Connection Setup
+                Serverless &amp; LTA DataMall Connection
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Configure your API endpoint or inspect the schema contract when you are ready to link the backend.
+                Direct integration with LTA DataMall CarParkAvailabilityv2 via serverless routes in <code>/api</code>.
               </p>
             </div>
           </div>
@@ -138,9 +163,31 @@ export const BackendIntegrationModal: React.FC<BackendIntegrationModalProps> = (
           {/* Active Mode Selector */}
           <div>
             <label className="block text-xs font-semibold text-slate-900 dark:text-white mb-2">
-              Data Source Mode
+              Select Data Feed Engine
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setMode('LTA_DATAMALL')}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  mode === 'LTA_DATAMALL'
+                    ? 'border-emerald-600 dark:border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 ring-1 ring-emerald-500/30'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-slate-300'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold text-slate-900 dark:text-white text-xs">
+                    LTA DataMall
+                  </span>
+                  {mode === 'LTA_DATAMALL' && (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                  )}
+                </div>
+                <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
+                  Calls <code>/api/carparkavailability</code> to query LTA&apos;s CarParkAvailabilityv2.
+                </p>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setMode('SIMULATED')}
@@ -152,14 +199,14 @@ export const BackendIntegrationModal: React.FC<BackendIntegrationModalProps> = (
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-semibold text-slate-900 dark:text-white text-xs">
-                    Simulated Real-Time Engine
+                    Simulated Seed
                   </span>
                   {mode === 'SIMULATED' && (
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                   )}
                 </div>
                 <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
-                  Active now. 30+ real Singapore carparks (HDB/URA/Malls) with realistic lot turnover simulations.
+                  Real Singapore carparks with autonomous turnover simulations.
                 </p>
               </button>
 
@@ -174,73 +221,96 @@ export const BackendIntegrationModal: React.FC<BackendIntegrationModalProps> = (
               >
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-semibold text-slate-900 dark:text-white text-xs">
-                    Custom Backend REST API
+                    Custom REST API
                   </span>
                   {mode === 'CUSTOM_API' && (
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                   )}
                 </div>
                 <p className="text-slate-500 dark:text-slate-400 text-[11px] leading-relaxed">
-                  Connect to your Node.js, Python, or Go server endpoint (e.g. <code>http://localhost:8000/api/carparks</code>).
+                  Target your own backend proxy endpoint.
                 </p>
               </button>
             </div>
           </div>
 
-          {/* Endpoint Configuration (if Custom API selected) */}
-          {mode === 'CUSTOM_API' && (
-            <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
-              <div>
-                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  API Base URL
-                </label>
-                <input
-                  type="text"
-                  value={endpoint}
-                  onChange={(e) => setEndpoint(e.target.value)}
-                  placeholder="http://localhost:8000/api/carparks or /api/carparks"
-                  className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                />
-              </div>
+          {/* Serverless Endpoints Status Box */}
+          <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+            <div className="font-semibold text-slate-900 dark:text-white flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Activity className="w-4 h-4 text-emerald-600" />
+                Serverless API Endpoints (at <code>/api</code> root)
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">No hardcoded keys</span>
+            </div>
 
-              <div>
-                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Optional API Key / Authorization Header
-                </label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Bearer token or DataMall account key"
-                  className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <div>
+                  <div className="font-mono font-semibold text-slate-900 dark:text-white">GET /api/health</div>
+                  <div className="text-[10px] text-slate-500">Uptime &amp; LTA key status</div>
+                </div>
                 <button
                   type="button"
-                  onClick={handleTestConnection}
+                  onClick={() => handleTestEndpoint('health')}
                   disabled={isTesting}
-                  className="px-3 py-1.5 font-medium text-white bg-slate-900 dark:bg-slate-700 rounded-md hover:bg-slate-800 transition-colors flex items-center gap-1.5 cursor-pointer"
+                  className="px-2.5 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded transition-colors cursor-pointer"
                 >
-                  <RefreshCw className={`w-3 h-3 ${isTesting ? 'animate-spin' : ''}`} />
-                  <span>{isTesting ? 'Testing...' : 'Test Connection'}</span>
+                  Test
                 </button>
+              </div>
 
-                {testResult && (
-                  <span
-                    className={`font-medium ${
-                      testResult.success
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-rose-600 dark:text-rose-400'
-                    }`}
-                  >
-                    {testResult.message}
-                  </span>
-                )}
+              <div className="p-2.5 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                <div>
+                  <div className="font-mono font-semibold text-slate-900 dark:text-white">GET /api/carparkavailability</div>
+                  <div className="text-[10px] text-slate-500">Pulls LTA DataMall v2</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleTestEndpoint('carparkavailability')}
+                  disabled={isTesting}
+                  className="px-2.5 py-1 text-[11px] font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded transition-colors cursor-pointer"
+                >
+                  Test
+                </button>
               </div>
             </div>
-          )}
+
+            {/* Test result display */}
+            {testResult && (
+              <div className={`p-3 rounded-lg border text-[11px] ${
+                testResult.success
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
+                  : 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+              }`}>
+                <div className="font-semibold">{testResult.message}</div>
+                {testResult.details && (
+                  <pre className="mt-1.5 p-2 bg-slate-900 text-slate-200 rounded overflow-x-auto text-[10px] font-mono max-h-36">
+                    {JSON.stringify(testResult.details, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* AccountKey Configuration (optional live injection) */}
+          <div className="space-y-3 p-4 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div>
+              <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
+                LTA DataMall AccountKey (Leave blank to use <code>LTA_DATAMALL_ACCOUNT_KEY</code> from <code>.env</code>)
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Paste AccountKey here or configure in .env"
+                className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+              />
+              <span className="text-[10px] text-slate-500 mt-1 block">
+                Never hardcoded in code. The serverless handler reads from <code>process.env.LTA_DATAMALL_ACCOUNT_KEY</code> or your <code>AccountKey</code> header.
+              </span>
+            </div>
+          </div>
 
           {/* Polling Cadence */}
           <div className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -282,7 +352,7 @@ export const BackendIntegrationModal: React.FC<BackendIntegrationModalProps> = (
             <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-1.5 font-semibold text-slate-900 dark:text-white">
                 <Code2 className="w-4 h-4 text-emerald-600" />
-                <span>Expected API JSON Contract</span>
+                <span>LTA DataMall CarParkAvailabilityv2 Payload Format</span>
               </div>
               <button
                 type="button"
@@ -290,28 +360,12 @@ export const BackendIntegrationModal: React.FC<BackendIntegrationModalProps> = (
                 className="text-slate-500 hover:text-emerald-600 flex items-center gap-1 font-medium transition-colors cursor-pointer"
               >
                 {copiedContract ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedContract ? 'Copied' : 'Copy Schema'}</span>
+                <span>{copiedContract ? 'Copied' : 'Copy'}</span>
               </button>
             </div>
             <pre className="p-3 bg-slate-900 text-slate-200 rounded-xl font-mono text-[11px] overflow-x-auto leading-relaxed border border-slate-800">
               {sampleJsonContract}
             </pre>
-          </div>
-
-          {/* Official Singapore Government Feeds Info */}
-          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-start gap-3">
-            <Server className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 space-y-1">
-              <div className="font-semibold text-slate-700 dark:text-slate-200">
-                GovTech &amp; LTA DataMall References:
-              </div>
-              <div>
-                When building your backend, you can proxy GovTech&apos;s free endpoint:
-                <code className="text-emerald-600 dark:text-emerald-400 block font-mono mt-0.5">
-                  https://api.data.gov.sg/v1/transport/carpark-availability
-                </code>
-              </div>
-            </div>
           </div>
         </div>
 

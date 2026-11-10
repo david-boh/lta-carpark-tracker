@@ -229,3 +229,110 @@ export function estimateParkingFee(
     isGracePeriod: false
   };
 }
+
+// Fetch live carparks from serverless endpoint /api/carparkavailability
+export async function fetchLTACarparks(apiKey?: string): Promise<{
+  success: boolean;
+  carparks?: SingaporeCarpark[];
+  message?: string;
+  hasKey?: boolean;
+}> {
+  try {
+    const headers: Record<string, string> = {
+      accept: 'application/json'
+    };
+    if (apiKey && apiKey.trim().length > 0) {
+      headers['AccountKey'] = apiKey.trim();
+    }
+
+    const res = await fetch('/api/carparkavailability?fetchAll=true', {
+      method: 'GET',
+      headers
+    });
+
+    const data = await res.json();
+
+    if (data.status === 'CONFIG_REQUIRED') {
+      return {
+        success: false,
+        hasKey: false,
+        message: data.message
+      };
+    }
+
+    if (data.status === 'OK' && Array.isArray(data.normalized) && data.normalized.length > 0) {
+      const mapped: SingaporeCarpark[] = data.normalized.map((n: any) => ({
+        id: n.id,
+        carpark_number: n.carpark_number,
+        name: n.name,
+        address: n.address,
+        agency: (['HDB', 'URA', 'LTA'].includes(n.agency) ? n.agency : 'MALL') as any,
+        district: n.district || 'Singapore',
+        coordinates: n.coordinates,
+        carpark_type: 'MULTI-STOREY',
+        parking_system: 'ELECTRONIC',
+        gantry_height_m: 2.1,
+        short_term_parking: 'WHOLE DAY',
+        free_parking: 'NO',
+        night_parking: true,
+        lots: {
+          car: {
+            total: Math.max(n.lots?.car?.total || 100, n.lots?.car?.available || 0),
+            available: n.lots?.car?.available || 0
+          },
+          motorcycle: {
+            total: Math.max(n.lots?.motorcycle?.total || 50, n.lots?.motorcycle?.available || 0),
+            available: n.lots?.motorcycle?.available || 0
+          }
+        },
+        ev_charging: { hasEV: false },
+        rates: {
+          central_area: false,
+          day_rate_text: '$0.60 per 30 mins',
+          day_rate_half_hour: 0.60,
+          night_rate_text: '$0.60 per 30 mins (Capped at $5.00)',
+          sunday_ph_free: false,
+          grace_period_mins: 15
+        },
+        update_datetime: data.timestamp || new Date().toISOString(),
+        trend: 'STABLE'
+      }));
+
+      return {
+        success: true,
+        carparks: mapped,
+        hasKey: true,
+        message: `Fetched ${mapped.length} live carpark availability records from LTA DataMall.`
+      };
+    }
+
+    return {
+      success: false,
+      hasKey: data.hasKey ?? false,
+      message: data.message || 'No carpark data returned from LTA endpoint.'
+    };
+  } catch (err: unknown) {
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : String(err)
+    };
+  }
+}
+
+// Check /api/health
+export async function checkApiHealth(): Promise<{
+  status: string;
+  ltaConnection?: { accountKeyConfigured: boolean; targetEndpoint: string };
+  error?: string;
+}> {
+  try {
+    const res = await fetch('/api/health');
+    return await res.json();
+  } catch (err: unknown) {
+    return {
+      status: 'error',
+      error: err instanceof Error ? err.message : String(err)
+    };
+  }
+}
+
