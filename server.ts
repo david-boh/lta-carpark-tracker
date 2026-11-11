@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import healthHandler from './api/health.ts';
 import carparkAvailabilityHandler from './api/carparkavailability.ts';
+import onemapHandler from './api/onemap.ts';
 
 dotenv.config();
 
@@ -19,6 +20,7 @@ async function startServer() {
   // Register serverless API handlers from /api folder
   app.get('/api/health', (req, res) => healthHandler(req, res));
   app.get('/api/carparkavailability', (req, res) => carparkAvailabilityHandler(req, res));
+  app.get('/api/onemap', (req, res) => onemapHandler(req, res));
 
   // Development: Vite middlewares
   if (process.env.NODE_ENV !== 'production') {
