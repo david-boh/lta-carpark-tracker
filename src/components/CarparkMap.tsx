@@ -1,8 +1,9 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { SingaporeCarpark, OccupancyStatus } from '../types/carpark';
 import { computeOccupancyStatus } from '../services/carparkService';
 import { DISTRICT_MAP_CENTERS } from '../data/singaporeCarparks';
+import { Layers } from 'lucide-react';
 
 interface CarparkMapProps {
   carparks: SingaporeCarpark[];
@@ -13,6 +14,8 @@ interface CarparkMapProps {
   userLocation: { lat: number; lng: number } | null;
   darkMode: boolean;
 }
+
+export type BaseMapStyle = 'onemap-default' | 'onemap-night' | 'onemap-grey' | 'osm';
 
 export const CarparkMap: React.FC<CarparkMapProps> = ({
   carparks,
@@ -25,8 +28,58 @@ export const CarparkMap: React.FC<CarparkMapProps> = ({
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
+
+  // User-selected basemap style (defaults to onemap-night in dark mode, onemap-default in light mode)
+  const [baseMapStyle, setBaseMapStyle] = useState<BaseMapStyle>(
+    darkMode ? 'onemap-night' : 'onemap-default'
+  );
+  const [showStyleMenu, setShowStyleMenu] = useState(false);
+
+  // Sync with darkMode if user hasn't explicitly chosen a special style
+  useEffect(() => {
+    if (darkMode && baseMapStyle === 'onemap-default') {
+      setBaseMapStyle('onemap-night');
+    } else if (!darkMode && baseMapStyle === 'onemap-night') {
+      setBaseMapStyle('onemap-default');
+    }
+  }, [darkMode]);
+
+  const getTileConfig = (style: BaseMapStyle) => {
+    switch (style) {
+      case 'onemap-night':
+        return {
+          url: 'https://www.onemap.gov.sg/maps/tiles/Night/{z}/{x}/{y}.png',
+          attribution:
+            '&copy; <a href="https://www.onemap.gov.sg/" target="_blank">OneMap</a> &copy; Singapore Land Authority',
+          maxZoom: 19
+        };
+      case 'onemap-grey':
+        return {
+          url: 'https://www.onemap.gov.sg/maps/tiles/Grey/{z}/{x}/{y}.png',
+          attribution:
+            '&copy; <a href="https://www.onemap.gov.sg/" target="_blank">OneMap</a> &copy; Singapore Land Authority',
+          maxZoom: 19
+        };
+      case 'osm':
+        return {
+          url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          maxZoom: 19
+        };
+      case 'onemap-default':
+      default:
+        return {
+          url: 'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png',
+          attribution:
+            '&copy; <a href="https://www.onemap.gov.sg/" target="_blank">OneMap</a> &copy; Singapore Land Authority',
+          maxZoom: 19
+        };
+    }
+  };
 
   // Initialize Map
   useEffect(() => {
@@ -38,24 +91,20 @@ export const CarparkMap: React.FC<CarparkMapProps> = ({
       center: [1.3521, 103.8198],
       zoom: 12,
       minZoom: 11,
-      maxZoom: 18,
+      maxZoom: 19,
       zoomControl: false
     });
 
     // Add zoom control at bottom right for clean UX
     L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-    // Modern CartoDB Voyager tiles (crisp, uncluttered vector feel)
-    const tileUrl = darkMode
-      ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-
-    L.tileLayer(tileUrl, {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 19
+    const initialConfig = getTileConfig(baseMapStyle);
+    const tileLayer = L.tileLayer(initialConfig.url, {
+      attribution: initialConfig.attribution,
+      maxZoom: initialConfig.maxZoom
     }).addTo(map);
+
+    tileLayerRef.current = tileLayer;
 
     const markersGroup = L.layerGroup().addTo(map);
     markersLayerRef.current = markersGroup;
@@ -64,8 +113,16 @@ export const CarparkMap: React.FC<CarparkMapProps> = ({
     return () => {
       map.remove();
       mapInstanceRef.current = null;
+      tileLayerRef.current = null;
     };
   }, []);
+
+  // Update tile layer URL dynamically when style changes
+  useEffect(() => {
+    if (!tileLayerRef.current) return;
+    const config = getTileConfig(baseMapStyle);
+    tileLayerRef.current.setUrl(config.url);
+  }, [baseMapStyle]);
 
   // Pan to selected district if changed
   useEffect(() => {
@@ -214,7 +271,7 @@ export const CarparkMap: React.FC<CarparkMapProps> = ({
     <div className="relative w-full h-full min-h-[480px] bg-slate-100 dark:bg-slate-900 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800">
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-      {/* Floating Map Legend */}
+      {/* Floating Map Legend (Top Left) */}
       <div className="absolute top-4 left-4 z-10 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm border border-slate-200 dark:border-slate-800 p-2.5 rounded-lg shadow-md text-xs text-slate-700 dark:text-slate-200 pointer-events-auto">
         <div className="font-semibold text-[11px] text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wide">
           Lot Availability
@@ -236,6 +293,92 @@ export const CarparkMap: React.FC<CarparkMapProps> = ({
             <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
             <span className="font-medium text-[11px]">Full</span>
           </div>
+        </div>
+      </div>
+
+      {/* Basemap Switcher (Top Right) */}
+      <div className="absolute top-4 right-4 z-10">
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowStyleMenu(!showStyleMenu)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white/95 dark:bg-slate-900/95 backdrop-blur-sm border border-slate-200 dark:border-slate-800 rounded-lg shadow-md text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+          >
+            <Layers className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span>
+              {baseMapStyle === 'onemap-default'
+                ? 'OneMap SLA'
+                : baseMapStyle === 'onemap-night'
+                ? 'OneMap Night'
+                : baseMapStyle === 'onemap-grey'
+                ? 'OneMap Grey'
+                : 'OpenStreetMap'}
+            </span>
+          </button>
+
+          {showStyleMenu && (
+            <div className="absolute right-0 mt-1.5 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-lg py-1 z-20 text-xs">
+              <div className="px-3 py-1 font-semibold text-[10px] uppercase text-slate-400 tracking-wider">
+                Singapore Basemaps
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setBaseMapStyle('onemap-default');
+                  setShowStyleMenu(false);
+                }}
+                className={`w-full px-3 py-1.5 text-left transition-colors cursor-pointer flex items-center justify-between ${
+                  baseMapStyle === 'onemap-default'
+                    ? 'font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <span>OneMap SLA (Default)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setBaseMapStyle('onemap-night');
+                  setShowStyleMenu(false);
+                }}
+                className={`w-full px-3 py-1.5 text-left transition-colors cursor-pointer flex items-center justify-between ${
+                  baseMapStyle === 'onemap-night'
+                    ? 'font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <span>OneMap Night (Dark)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setBaseMapStyle('onemap-grey');
+                  setShowStyleMenu(false);
+                }}
+                className={`w-full px-3 py-1.5 text-left transition-colors cursor-pointer flex items-center justify-between ${
+                  baseMapStyle === 'onemap-grey'
+                    ? 'font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <span>OneMap Grey (Minimal)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setBaseMapStyle('osm');
+                  setShowStyleMenu(false);
+                }}
+                className={`w-full px-3 py-1.5 text-left transition-colors cursor-pointer flex items-center justify-between border-t border-slate-100 dark:border-slate-800 mt-1 pt-1.5 ${
+                  baseMapStyle === 'osm'
+                    ? 'font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <span>OpenStreetMap</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
